@@ -1,0 +1,295 @@
+version: "3.8"
+
+networks:
+  over-network:
+    driver: overlay
+    attachable: true
+
+configs:
+  postgres_init:
+    file: /app/services/database/init.sql
+  nginx_config:
+    file: nginx.conf
+
+services:
+    
+    db:
+        image: postgres:13-alpine
+        environment:
+          POSTGRES_USER : "postgres"
+          POSTGRES_PASSWORD: "postgres"
+          POSTGRES_DB: "postgres_db"
+        volumes:
+          - postgres_data:/var/lib/postgresql/data
+        configs:
+          - source: postgres_init
+            target: /docker-entrypoint-initdb.d/init.sql
+        deploy:
+          resources:
+            limits:
+              cpus: '0.5'
+              memory: 512M
+            reservations:
+              cpus: '0.2'
+              memory: 256M
+        networks:
+            - over-network
+        ports:
+          - "5432:5432"
+        healthcheck:
+          test: ["CMD-SHELL", "pg_isready -U postgres"]
+          interval: 5s
+          timeout: 3s
+          retries: 10
+
+    rabbitmq:
+        image: rabbitmq:3-management-alpine
+        environment:
+          RABBITMQ_DEFAULT_USER: "guest"
+          RABBITMQ_DEFAULT_PASS: "guest"
+        deploy:
+            resources:
+              limits:
+               cpus: '0.3'
+               memory: 256M
+              reservations:
+                cpus: '0.1'
+                memory: 128M
+        networks:
+            - over-network
+        ports:
+          - "5672:5672"
+
+    session-service:
+        image: punkdiogen/session-service
+        environment:
+            SERVER_PORT: "8081" 
+            POSTGRES_HOST: "db"
+            POSTGRES_PORT: "5432"
+            POSTGRES_USER : "postgres"
+            POSTGRES_PASSWORD: "postgres"
+            POSTGRES_DB: "hotels_db"
+            SERVER_ADDRESS: "0.0.0.0"
+        deploy:
+            mode: global
+            resources:
+              limits:
+                cpus: '0.2'
+                memory: 256M
+              reservations:
+                cpus: '0.1'
+                memory: 128M
+        networks:
+            - over-network
+        healthcheck:
+          test: ["CMD", "curl", "http://localhost:8081/health"]
+          interval: 5s
+          timeout: 3s
+          retries: 10
+          start_period: 40s
+
+    hotel-service:
+        image: punkdiogen/hotel-service
+        environment:
+            SERVER_PORT: "8082" 
+            POSTGRES_HOST: "db"
+            POSTGRES_PORT: "5432"
+            POSTGRES_USER : "postgres"
+            POSTGRES_PASSWORD: "postgres"
+            POSTGRES_DB: "hotels_db"
+        deploy:
+          resources:
+            limits:
+              cpus: '0.2'
+              memory: 256M
+            reservations:
+              cpus: '0.1'
+              memory: 128M
+        networks:
+            - over-network
+        healthcheck:
+          test: ["CMD", "curl", "http://localhost:8082/health"]
+          interval: 5s
+          timeout: 3s
+          retries: 10
+          start_period: 40s
+    payment-service:
+        image: punkdiogen/payment-service
+        environment:
+          SERVER_PORT: "8084" 
+          POSTGRES_HOST: "db"
+          POSTGRES_PORT: "5432"
+          POSTGRES_USER : "postgres"
+          POSTGRES_PASSWORD: "postgres"
+          POSTGRES_DB: "payments_db"
+        deploy:
+          resources:
+            limits:
+              cpus: '0.2'
+              memory: 256M
+            reservations:
+              cpus: '0.1'
+              memory: 128M
+        networks:
+            - over-network
+        healthcheck:
+          test: ["CMD", "curl", "http://localhost:8084/health"]
+          interval: 5s
+          timeout: 3s
+          retries: 10
+          start_period: 40s
+
+    loyalty-service:
+        image: punkdiogen/loyalty-service
+        environment:
+          SERVER_PORT: "8085" 
+          POSTGRES_HOST: "db"
+          POSTGRES_PORT: "5432"
+          POSTGRES_USER : "postgres"
+          POSTGRES_PASSWORD: "postgres"
+          POSTGRES_DB: "balances_db"
+        deploy:
+          resources:
+            limits:
+              cpus: '0.2'
+              memory: 256M
+            reservations:
+              cpus: '0.1'
+              memory: 128M
+        networks:
+            - over-network
+        healthcheck:
+          test: ["CMD", "curl", "http://localhost:8085/health"]
+          interval: 5s
+          timeout: 3s
+          retries: 10
+          start_period: 40s
+
+    report-service:
+        image: punkdiogen/report-service
+        environment:
+          SERVER_PORT: "8086" 
+          POSTGRES_HOST: "db"
+          POSTGRES_PORT: "5432"
+          POSTGRES_USER : "postgres"
+          POSTGRES_PASSWORD: "postgres"
+          POSTGRES_DB: "statistics_db"
+          RABBIT_MQ_HOST: "rabbitmq"
+          RABBIT_MQ_PORT: "5672"
+          RABBIT_MQ_USER: "guest"
+          RABBIT_MQ_PASSWORD: "guest"
+          RABBIT_MQ_QUEUE_NAME: messagequeue
+          RABBIT_MQ_EXCHANGE: messagequeue-exchange
+        deploy:
+          resources:
+            limits:
+              cpus: '0.3'
+              memory: 384M
+            reservations:
+              cpus: '0.15'
+              memory: 192M
+        networks:
+            - over-network
+        healthcheck:
+          test: ["CMD", "curl", "http://localhost:8086/health"]
+          interval: 5s
+          timeout: 3s
+          retries: 10
+          start_period: 40s
+
+    booking-service:
+        image: punkdiogen/booking-service
+        environment:
+          SERVER_PORT: "8083" 
+          POSTGRES_HOST: "db"
+          POSTGRES_PORT: "5432"
+          POSTGRES_USER : "postgres"
+          POSTGRES_PASSWORD: "postgres"
+          POSTGRES_DB: "reservations_db"
+          RABBIT_MQ_HOST: "rabbitmq"
+          RABBIT_MQ_PORT: "5672"
+          RABBIT_MQ_USER: "guest"
+          RABBIT_MQ_PASSWORD: "guest"
+          RABBIT_MQ_QUEUE_NAME: "messagequeue"
+          RABBIT_MQ_EXCHANGE: "messagequeue-exchange"
+          HOTEL_SERVICE_HOST: "hotel-service"
+          HOTEL_SERVICE_PORT: "8082"
+          PAYMENT_SERVICE_HOST: "payment-service"
+          PAYMENT_SERVICE_PORT: "8084"
+          LOYALTY_SERVICE_HOST: "loyalty-service"
+          LOYALTY_SERVICE_PORT: "8085"
+        deploy:
+          resources:
+            limits:
+              cpus: '0.4'
+              memory: 512M
+            reservations:
+              cpus: '0.2'
+              memory: 256M
+        networks:
+            - over-network
+        healthcheck:
+          test: ["CMD", "curl", "http://localhost:8083/health"]
+          interval: 5s
+          timeout: 3s
+          retries: 10
+          start_period: 40s
+    gateway-service:
+          image: punkdiogen/gateway-service
+          environment:
+            SERVER_PORT: "8087" 
+            SESSION_SERVICE_HOST: "session-service"
+            SESSION_SERVICE_PORT: "8081"
+            HOTEL_SERVICE_HOST: "hotel-service"
+            HOTEL_SERVICE_PORT: "8082"
+            BOOKING_SERVICE_HOST: "booking-service"
+            BOOKING_SERVICE_PORT: "8083"
+            PAYMENT_SERVICE_HOST: "payment-service"
+            PAYMENT_SERVICE_PORT: "8084"
+            LOYALTY_SERVICE_HOST: "loyalty-service"
+            LOYALTY_SERVICE_PORT: "8085"
+            REPORT_SERVICE_HOST: "report-service"
+            REPORT_SERVICE_PORT: "8086"
+            SERVER_ADDRESS: "0.0.0.0"
+          networks:
+              - over-network
+          deploy:
+            mode: global
+            resources:
+               limits:
+                 cpus: '0.3'
+                 memory: 384M
+               reservations:
+                cpus: '0.15'
+                memory: 192M
+          healthcheck:
+            test: ["CMD", "curl", "http://localhost:8087/health"]
+            interval: 5s
+            timeout: 3s
+            retries: 10
+            start_period: 40s
+    nginx:
+     image: nginx:alpine
+     ports:
+        - "80:80"
+     deploy:
+         mode: global
+         resources:
+            limits:
+              cpus: '0.1'
+              memory: 64M
+            reservations:
+              cpus: '0.05'
+              memory: 32M
+     networks:
+         - over-network
+     configs:
+         - source: nginx_config
+           target: /etc/nginx/nginx.conf
+
+volumes:
+  postgres_data:
+      driver: local
+
+
+
